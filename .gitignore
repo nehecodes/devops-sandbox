@@ -1,0 +1,19 @@
+# Runtime state — never commit
+envs/
+logs/
+.env
+.daemon.pid
+.monitor.pid
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# Docker
+.docker/
+
+# OS
+.DS_Store
