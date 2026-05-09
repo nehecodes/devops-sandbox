@@ -1,0 +1,24 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    docker.io \
+    curl \
+    bash \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Python dependencies
+COPY platform/requirements.txt ./
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy platform scripts
+COPY platform/ ./platform/
+
+# Create required dirs
+RUN mkdir -p envs logs nginx/conf.d
+
+EXPOSE 5050
+
+CMD ["python3", "platform/api.py"]
