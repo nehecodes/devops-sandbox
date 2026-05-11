@@ -37,6 +37,7 @@ docker ps -a --filter "label=sandbox.env=$ENV_ID" --format "{{.ID}}" | \
 
 # Remove Docker network
 echo "  Removing network..."
+docker network disconnect "sandbox-$ENV_ID" sandbox-nginx 2>/dev/null || true
 docker network rm "sandbox-$ENV_ID" 2>/dev/null || true
 
 # Remove Nginx config and reload
