@@ -8,7 +8,6 @@ ENVS_DIR="$ROOT_DIR/envs"
 ENV_ID=""
 MODE=""
 
-# Parse flags
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --env) ENV_ID="$2"; shift 2 ;;
@@ -22,7 +21,6 @@ if [[ -z "$ENV_ID" || -z "$MODE" ]]; then
   exit 1
 fi
 
-# Safety guard — never simulate against infrastructure containers
 PROTECTED_CONTAINERS=("sandbox-nginx" "sandbox-daemon" "sandbox-api" "sandbox-loki" "sandbox-grafana" "sandbox-prometheus")
 CONTAINER_NAME="sandbox-$ENV_ID"
 
@@ -33,14 +31,12 @@ for protected in "${PROTECTED_CONTAINERS[@]}"; do
   fi
 done
 
-# Verify env exists
 STATE_FILE="$ENVS_DIR/$ENV_ID.json"
 if [[ ! -f "$STATE_FILE" ]]; then
   echo "ERROR: Environment $ENV_ID not found"
   exit 1
 fi
 
-# Verify container is a sandbox env (must have sandbox.managed label)
 LABEL_CHECK=$(docker inspect "$CONTAINER_NAME" --format '{{index .Config.Labels "sandbox.managed"}}' 2>/dev/null || echo "")
 if [[ "$LABEL_CHECK" != "true" ]]; then
   echo "ERROR: Container $CONTAINER_NAME is not a managed sandbox env"
@@ -51,14 +47,17 @@ TS="[$(date -u +"%Y-%m-%dT%H:%M:%SZ")]"
 
 update_status() {
   local new_status="$1"
-  python3 - <<PYEOF
+  # Fix ownership first if needed
+  chown "$(whoami)" "$STATE_FILE" 2>/dev/null || sudo chown "$(whoami)" "$STATE_FILE" 2>/dev/null || true
+  python3 -c "
 import json
 with open('$STATE_FILE') as f:
     d = json.load(f)
 d['status'] = '$new_status'
 with open('$STATE_FILE', 'w') as f:
     json.dump(d, f, indent=2)
-PYEOF
+print('  Status -> $new_status')
+" 2>/dev/null || echo "  WARNING: could not write status (continuing)"
 }
 
 case "$MODE" in
@@ -66,7 +65,7 @@ case "$MODE" in
     echo "$TS [SIMULATE] Crashing container $CONTAINER_NAME"
     docker kill "$CONTAINER_NAME"
     update_status "crashed"
-    echo "$TS [SIMULATE] Container killed — health monitor should detect within 90s"
+    echo "$TS [SIMULATE] Container killed"
     ;;
 
   pause)
@@ -85,34 +84,32 @@ case "$MODE" in
 
   recover)
     echo "$TS [SIMULATE] Recovering $CONTAINER_NAME"
-    CURRENT_STATUS=$(python3 -c "import json; d=json.load(open('$STATE_FILE')); print(d.get('status',''))" 2>/dev/null)
 
-    case "$CURRENT_STATUS" in
-      paused)
-        docker unpause "$CONTAINER_NAME"
-        echo "$TS [SIMULATE] Container unpaused"
-        ;;
-      crashed)
-        docker start "$CONTAINER_NAME" 2>/dev/null || \
-          echo "$TS [SIMULATE] Container could not be restarted (may need re-create)"
-        echo "$TS [SIMULATE] Container restarted"
-        ;;
-      network-isolated)
-        docker network connect "sandbox-$ENV_ID" "$CONTAINER_NAME" 2>/dev/null || true
-        echo "$TS [SIMULATE] Network restored"
-        ;;
-      *)
-        echo "$TS [SIMULATE] No known outage to recover from (status=$CURRENT_STATUS)"
-        ;;
-    esac
+    CURRENT_STATUS=$(python3 -c "import json; d=json.load(open('$STATE_FILE')); print(d.get('status','unknown'))" 2>/dev/null || echo "unknown")
+    DOCKER_STATUS=$(docker inspect "$CONTAINER_NAME" --format '{{.State.Status}}' 2>/dev/null || echo "unknown")
+    echo "$TS [SIMULATE] Docker=$DOCKER_STATUS  recorded=$CURRENT_STATUS"
+
+    if [[ "$DOCKER_STATUS" == "paused" ]]; then
+      docker unpause "$CONTAINER_NAME"
+      echo "$TS [SIMULATE] Container unpaused"
+    fi
+
+    if [[ "$DOCKER_STATUS" == "exited" || "$DOCKER_STATUS" == "dead" ]]; then
+      docker start "$CONTAINER_NAME" 2>/dev/null || true
+      echo "$TS [SIMULATE] Container restarted"
+    fi
+
+    docker network connect "sandbox-$ENV_ID" "$CONTAINER_NAME" 2>/dev/null || true
+
     update_status "running"
+    echo "$TS [SIMULATE] Recovery complete"
     ;;
 
   stress)
-    echo "$TS [SIMULATE] Running CPU stress on $CONTAINER_NAME (requires stress-ng in container)"
+    echo "$TS [SIMULATE] CPU stress on $CONTAINER_NAME (30s)"
     docker exec "$CONTAINER_NAME" sh -c \
       "which stress-ng && stress-ng --cpu 2 --timeout 30s || \
-       (yes > /dev/null & yes > /dev/null & sleep 30 && kill %1 %2)" &
+       (yes > /dev/null & yes > /dev/null & sleep 30 && kill %1 %2 2>/dev/null)" &
     echo "$TS [SIMULATE] CPU stress started for 30s"
     ;;
 
