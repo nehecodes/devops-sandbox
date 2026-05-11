@@ -2,8 +2,6 @@
 """Health monitor — polls /health on all active envs every 30s."""
 
 import json
-import os
-import sys
 import time
 import urllib.request
 import urllib.error
@@ -58,7 +56,9 @@ def poll_env(env_id: str, state: dict) -> None:
     error = None
 
     try:
-        req = urllib.request.Request(url, headers={"User-Agent": "sandbox-health-monitor/1.0"})
+        req = urllib.request.Request(
+            url, headers={"User-Agent": "sandbox-health-monitor/1.0"}
+        )
         with urllib.request.urlopen(req, timeout=5) as resp:
             http_status = resp.status
             latency_ms = round((time.monotonic() - start) * 1000, 1)
@@ -93,12 +93,21 @@ def poll_env(env_id: str, state: dict) -> None:
     else:
         failure_counts[env_id] = failure_counts.get(env_id, 0) + 1
         count = failure_counts[env_id]
-        print(f"[{ts}] {env_id} UNHEALTHY ({error or f'HTTP {http_status}'}) [{count}/{FAILURE_THRESHOLD}]")
+        print(
+            f"[{ts}] {env_id} UNHEALTHY ({error or f'HTTP {http_status}'}) [{count}/{FAILURE_THRESHOLD}]"
+        )
 
-        if count >= FAILURE_THRESHOLD and status not in ("degraded", "crashed", "paused", "network-isolated"):
+        if count >= FAILURE_THRESHOLD and status not in (
+            "degraded",
+            "crashed",
+            "paused",
+            "network-isolated",
+        ):
             state_file = ENVS_DIR / f"{env_id}.json"
             update_status(state_file, "degraded")
-            print(f"[{ts}] ⚠️  WARNING: {env_id} marked as DEGRADED after {count} consecutive failures")
+            print(
+                f"[{ts}] ⚠️  WARNING: {env_id} marked as DEGRADED after {count} consecutive failures"
+            )
 
 
 def run_poll_cycle() -> None:
@@ -116,7 +125,9 @@ def run_poll_cycle() -> None:
 
 
 def main() -> None:
-    print(f"[{datetime.now(timezone.utc).isoformat()}] Health monitor started (interval={POLL_INTERVAL}s, threshold={FAILURE_THRESHOLD})")
+    print(
+        f"[{datetime.now(timezone.utc).isoformat()}] Health monitor started (interval={POLL_INTERVAL}s, threshold={FAILURE_THRESHOLD})"
+    )
 
     while True:
         run_poll_cycle()
