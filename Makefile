@@ -21,6 +21,7 @@ RESET  := \033[0m
 up:
 	@echo -e "$(CYAN)Starting sandbox platform...$(RESET)"
 	@mkdir -p $(ENVS_DIR) $(LOGS_DIR) $(ROOT_DIR)/nginx/conf.d $(LOGS_DIR)/archived
+	@sudo chown -R $(shell id -u):$(shell id -g) ./logs ./envs && sudo chmod g+s ./logs ./envs
 	@docker compose up -d nginx api
 	@echo -e "$(GREEN)✓ Nginx and API started$(RESET)"
 	@echo -e "$(CYAN)Starting cleanup daemon in background...$(RESET)"
@@ -50,8 +51,7 @@ down:
 		echo -e "$(GREEN)✓ Health monitor stopped$(RESET)"; \
 	fi
 	@echo -e "$(YELLOW)Destroying all active environments...$(RESET)"
-	@for f in $(ENVS_DIR)/*.json 2>/dev/null; do \
-		[ -f "$$f" ] || continue; \
+	@find $(ENVS_DIR) -maxdepth 1 -name '*.json' 2>/dev/null | while read f; do \
 		ENV_ID=$$(basename $$f .json); \
 		echo "  Destroying $$ENV_ID..."; \
 		bash $(PLATFORM)/destroy_env.sh "$$ENV_ID" 2>/dev/null || true; \
@@ -97,28 +97,20 @@ endif
 health:
 	@echo -e "$(CYAN)Environment Health Status$(RESET)"
 	@echo -e "$(CYAN)─────────────────────────$(RESET)"
-	@COUNT=0; \
-	for f in $(ENVS_DIR)/*.json 2>/dev/null; do \
-		[ -f "$$f" ] || continue; \
-		COUNT=$$((COUNT+1)); \
+	@COUNT=$$(find $(ENVS_DIR) -maxdepth 1 -name '*.json' 2>/dev/null | wc -l); \
+	find $(ENVS_DIR) -maxdepth 1 -name '*.json' 2>/dev/null | while read f; do \
 		ENV_ID=$$(basename $$f .json); \
 		STATUS=$$(python3 -c "import json; d=json.load(open('$$f')); print(d.get('status','?'))"); \
 		TTL=$$(python3 -c "import json,time; d=json.load(open('$$f')); print(max(0, d['created_ts']+d['ttl']-int(time.time())))"); \
-		case "$$STATUS" in \
-			running)   COLOR="$(GREEN)" ;; \
-			degraded)  COLOR="$(YELLOW)" ;; \
-			crashed)   COLOR="$(RED)" ;; \
-			*)         COLOR="$(RESET)" ;; \
-		esac; \
-		echo -e "  $$COLOR$$ENV_ID$(RESET) — status=$$STATUS ttl_remaining=$${TTL}s"; \
+		echo -e "  $$ENV_ID — status=$$STATUS ttl_remaining=$${TTL}s"; \
 		HEALTH_LOG=$(LOGS_DIR)/$$ENV_ID/health.log; \
 		if [ -f "$$HEALTH_LOG" ]; then \
 			tail -n 1 "$$HEALTH_LOG" | python3 -c \
 				"import json,sys; d=json.loads(sys.stdin.read()); print(f'    last_check: HTTP {d.get(\"http_status\",\"?\")} {d.get(\"latency_ms\",\"?\")}ms ({d.get(\"timestamp\",\"?\")})')"; \
 		fi; \
 	done; \
-	if [ $$COUNT -eq 0 ]; then \
-		echo -e "  $(YELLOW)No active environments$(RESET)"; \
+	if [ "$$COUNT" -eq 0 ]; then \
+		echo -e "  No active environments"; \
 	fi
 
 ## simulate: Run outage simulation (requires ENV=<id> and MODE=<mode>)
