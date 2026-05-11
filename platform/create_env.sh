@@ -23,13 +23,14 @@ PORT=$(shuf -i 8100-8999 -n 1)
 
 # Ensure dirs
 mkdir -p "$ENVS_DIR" "$LOGS_DIR/$ENV_ID" "$NGINX_CONF_DIR"
+chmod 777 "$LOGS_DIR/$ENV_ID"
 
 echo "[$(date -u +"%Y-%m-%dT%H:%M:%SZ")] Creating environment: $ENV_ID (name=$ENV_NAME, ttl=${TTL}s)"
 
 # Create dedicated Docker network
 docker network create "sandbox-$ENV_ID" \
   --label "sandbox.env=$ENV_ID" \
-  --label "sandbox.managed=true" 2>/dev/null || true
+  --label "sandbox.managed=true"
 
 # Connect nginx container to env network (if running)
 if docker ps --format '{{.Names}}' | grep -q '^sandbox-nginx$'; then
@@ -89,6 +90,7 @@ fi
 
 # Start log shipping (Approach A)
 mkdir -p "$LOGS_DIR/$ENV_ID"
+chmod 777 "$LOGS_DIR/$ENV_ID"
 nohup docker logs -f "sandbox-$ENV_ID" >> "$LOGS_DIR/$ENV_ID/app.log" 2>&1 &
 echo $! > "$LOGS_DIR/$ENV_ID/log_shipper.pid"
 
@@ -104,3 +106,4 @@ echo "  URL:     http://localhost/env/$ENV_ID/"
 echo "  Direct:  http://localhost:$PORT/"
 echo "  TTL:     ${TTL}s (expires $EXPIRES_AT)"
 echo ""
+chown -R "$(whoami)" "$LOGS_DIR/$ENV_ID" 2>/dev/null || true
